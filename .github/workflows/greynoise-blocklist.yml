@@ -1,0 +1,104 @@
+name: GreyNoise blocklist
+
+on:
+  schedule:
+    - cron: "7 * * * *"   # de hora a hora, ao minuto 7
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: greynoise-blocklist
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Puxar lista e comparar
+        id: diff
+        env:
+          GN_URL: ${{ secrets.GREYNOISE_BLOCKLIST_URL }}
+        run: |
+          set -euo pipefail
+          export LC_ALL=C
+          mkdir -p data
+
+          first_run=false
+          if [ ! -f data/blocklist.txt ]; then
+            first_run=true
+            : > data/blocklist.txt
+          fi
+          if [ ! -f data/history.csv ]; then
+            echo "ip,first_seen" > data/history.csv
+          fi
+
+          curl -fsS --retry 3 --max-time 60 "$GN_URL" -o "$RUNNER_TEMP/raw.txt"
+
+          tr -d '\r' < "$RUNNER_TEMP/raw.txt" \
+            | grep -E '^[0-9a-fA-F:.]+$' \
+            | sort -u > "$RUNNER_TEMP/new.txt" || true
+
+          # protecao: nunca apagar a lista se a resposta vier vazia ou estranha
+          if [ ! -s "$RUNNER_TEMP/new.txt" ]; then
+            echo "Resposta vazia ou invalida, a abortar sem alterar nada."
+            exit 1
+          fi
+
+          sort -u data/blocklist.txt > "$RUNNER_TEMP/old.txt"
+          comm -13 "$RUNNER_TEMP/old.txt" "$RUNNER_TEMP/new.txt" > "$RUNNER_TEMP/added.txt"
+          comm -23 "$RUNNER_TEMP/old.txt" "$RUNNER_TEMP/new.txt" > "$RUNNER_TEMP/removed.txt"
+
+          today=$(date -u +%F)
+          while read -r ip; do
+            [ -n "$ip" ] && echo "$ip,$today" >> data/history.csv
+          done < "$RUNNER_TEMP/added.txt"
+
+          cp "$RUNNER_TEMP/new.txt" data/blocklist.txt
+
+          {
+            echo "added=$(wc -l < "$RUNNER_TEMP/added.txt")"
+            echo "removed=$(wc -l < "$RUNNER_TEMP/removed.txt")"
+            echo "total=$(wc -l < "$RUNNER_TEMP/new.txt")"
+            echo "first_run=$first_run"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data
+          if git diff --cached --quiet; then
+            echo "Sem alteracoes."
+            exit 0
+          fi
+          git commit -m "blocklist: +${{ steps.diff.outputs.added }} / -${{ steps.diff.outputs.removed }} (total ${{ steps.diff.outputs.total }})"
+          git push
+
+      - name: Avisar no Telegram
+        if: steps.diff.outputs.added != '0' && steps.diff.outputs.first_run != 'true'
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ADDED: ${{ steps.diff.outputs.added }}
+          TOTAL: ${{ steps.diff.outputs.total }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TG_TOKEN:-}" ] || [ -z "${TG_CHAT:-}" ]; then
+            echo "Secrets do Telegram em falta, a saltar o aviso."
+            exit 0
+          fi
+
+          msg="GreyNoise PHP Session Upload Progress: ${ADDED} IPs novos (total ${TOTAL})"
+          msg+=$'\n\n'"$(head -n 30 "$RUNNER_TEMP/added.txt")"
+          if [ "$ADDED" -gt 30 ]; then
+            msg+=$'\n'"... e mais $((ADDED - 30))"
+          fi
+
+          curl -fsS -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TG_CHAT}" \
+            --data-urlencode "text=${msg}" \
+            -o /dev/null
