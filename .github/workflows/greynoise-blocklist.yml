@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Puxar lista e comparar
+      - name: Puxar lista e acumular
         id: diff
         env:
           GN_URL: ${{ secrets.GREYNOISE_BLOCKLIST_URL }}
@@ -42,7 +42,7 @@ jobs:
             | grep -E '^[0-9a-fA-F:.]+$' \
             | sort -u > "$RUNNER_TEMP/new.txt" || true
 
-          # protecao: nunca apagar a lista se a resposta vier vazia ou estranha
+          # protecao: nunca mexer na lista se a resposta vier vazia ou estranha
           if [ ! -s "$RUNNER_TEMP/new.txt" ]; then
             echo "Resposta vazia ou invalida, a abortar sem alterar nada."
             exit 1
@@ -50,19 +50,22 @@ jobs:
 
           sort -u data/blocklist.txt > "$RUNNER_TEMP/old.txt"
           comm -13 "$RUNNER_TEMP/old.txt" "$RUNNER_TEMP/new.txt" > "$RUNNER_TEMP/added.txt"
-          comm -23 "$RUNNER_TEMP/old.txt" "$RUNNER_TEMP/new.txt" > "$RUNNER_TEMP/removed.txt"
 
           today=$(date -u +%F)
           while read -r ip; do
             [ -n "$ip" ] && echo "$ip,$today" >> data/history.csv
           done < "$RUNNER_TEMP/added.txt"
 
-          cp "$RUNNER_TEMP/new.txt" data/blocklist.txt
+          # acumular: uniao da lista antiga com a nova
+          sort -u "$RUNNER_TEMP/old.txt" "$RUNNER_TEMP/new.txt" > data/blocklist.txt
+
+          # estado atual do feed, em ficheiro separado
+          cp "$RUNNER_TEMP/new.txt" data/current.txt
 
           {
             echo "added=$(wc -l < "$RUNNER_TEMP/added.txt")"
-            echo "removed=$(wc -l < "$RUNNER_TEMP/removed.txt")"
-            echo "total=$(wc -l < "$RUNNER_TEMP/new.txt")"
+            echo "total=$(wc -l < data/blocklist.txt)"
+            echo "current=$(wc -l < data/current.txt)"
             echo "first_run=$first_run"
           } >> "$GITHUB_OUTPUT"
 
@@ -75,7 +78,7 @@ jobs:
             echo "Sem alteracoes."
             exit 0
           fi
-          git commit -m "blocklist: +${{ steps.diff.outputs.added }} / -${{ steps.diff.outputs.removed }} (total ${{ steps.diff.outputs.total }})"
+          git commit -m "blocklist: +${{ steps.diff.outputs.added }} (total ${{ steps.diff.outputs.total }}, ativos ${{ steps.diff.outputs.current }})"
           git push
 
       - name: Avisar no Telegram
