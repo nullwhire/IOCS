@@ -183,19 +183,37 @@ def save_master(master):
             w.writerow({c: master[k][c] for c in cols})
 
 
+def _ipkey(s):
+    return tuple(map(int, s.split(".")))
+
+
 def write_lists(master, today):
     cutoff = (today - timedelta(days=ACTIVE_DAYS)).isoformat()
     act = [r for r in master.values()
            if r["last_seen"] >= cutoff and r["cdn"] != "1"]
     ipport = sorted({r["indicator"] for r in act if r["type"] == "ipport"})
     ips = sorted({r["indicator"].split(":")[0] for r in act
-                  if r["type"] in ("ip", "ipport")},
-                 key=lambda s: tuple(map(int, s.split("."))))
+                  if r["type"] in ("ip", "ipport")}, key=_ipkey)
     domains = sorted({r["indicator"] for r in act if r["type"] == "domain"})
-    for fname, rows in (("ipport.txt", ipport), ("ips.txt", ips),
-                        ("domains.txt", domains)):
+
+    # Indicadores vistos em 2+ fontes distintas. Para IPs conta-se a união das
+    # fontes de todas as entradas desse IP, seja qual for a porta.
+    ip_src, ipport_src = {}, {}
+    for r in act:
+        srcs = set(r["sources"].split("|"))
+        if r["type"] in ("ip", "ipport"):
+            ip_src.setdefault(r["indicator"].split(":")[0], set()).update(srcs)
+        if r["type"] == "ipport":
+            ipport_src.setdefault(r["indicator"], set()).update(srcs)
+    multi_ips = sorted((i for i, s in ip_src.items() if len(s) >= 2), key=_ipkey)
+    multi_ipport = sorted(i for i, s in ipport_src.items() if len(s) >= 2)
+
+    files = {"ipport.txt": ipport, "ips.txt": ips, "domains.txt": domains,
+             "multi_source_ips.txt": multi_ips,
+             "multi_source_ipport.txt": multi_ipport}
+    for fname, rows in files.items():
         (DATA / fname).write_text("\n".join(rows) + ("\n" if rows else ""))
-    return len(ips), len(ipport), len(domains)
+    return {k: len(v) for k, v in files.items()}
 
 
 def telegram(text):
@@ -240,9 +258,11 @@ def main():
                 r["sources"] = "|".join(sorted(s))
 
     save_master(master)
-    n_ip, n_ipport, n_dom = write_lists(master, today)
+    n = write_lists(master, today)
     log(f"fontes ok: {', '.join(results)} | novos: {len(new)} | "
-        f"ativos: {n_ip} IPs, {n_ipport} IP:porta, {n_dom} domínios")
+        f"ativos: {n['ips.txt']} IPs, {n['ipport.txt']} IP:porta, "
+        f"{n['domains.txt']} domínios | 2+ fontes: {n['multi_source_ips.txt']} IPs, "
+        f"{n['multi_source_ipport.txt']} IP:porta")
 
     new_net = [v for t, v in new if t in ("ip", "ipport") and not is_cdn(v)]
     if new_net and not first_run:
