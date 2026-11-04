@@ -1,0 +1,50 @@
+name: artex-tracker
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: artex-tracker
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Recolher feeds ARTEX
+        run: python artex/collect.py
+        env:
+          DATA_DIR: artex/data
+          SCANMALWARE_FEED: ${{ secrets.SCANMALWARE_FEED }}
+          FOFA_KEY: ${{ secrets.FOFA_KEY }}
+          FOFA_EMAIL: ${{ secrets.FOFA_EMAIL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add artex/data
+          if git diff --cached --quiet; then
+            echo "sem alterações"
+            exit 0
+          fi
+          git commit -m "artex: update $(date -u +'%Y-%m-%d %H:%M')"
+          # outros workflows (ex. blocklist GreyNoise) também fazem push para main
+          for i in 1 2 3; do
+            git pull --rebase origin main && git push && exit 0
+            sleep 5
+          done
+          exit 1
