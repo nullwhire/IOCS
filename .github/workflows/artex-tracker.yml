@@ -43,8 +43,9 @@ jobs:
           fi
           git commit -m "artex: update $(date -u +'%Y-%m-%d %H:%M')"
           # outros workflows (ex. blocklist GreyNoise) também fazem push para main
-          for i in 1 2 3; do
+          for i in 1 2 3 4 5; do
             git pull --rebase origin main && git push && exit 0
-            sleep 5
+            echo "push falhou (tentativa $i), a esperar $((i*30))s"
+            sleep $((i*30))
           done
           exit 1
