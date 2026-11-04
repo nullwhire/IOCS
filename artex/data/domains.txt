@@ -4324,6 +4324,7 @@ direct.kuyiduo.hidns.vip
 direct.photonapi.xyz
 direct.sololaunch.cc
 direct.wdai.kdns.fr
+direct.xcai.pro
 direct.zhao-hu.com
 direct.zocom.online
 discord.com.v1in.com
@@ -4646,6 +4647,7 @@ fmavqlittle.bond
 fmz.io
 fnrelay.fyi
 fnstudio.org
+fofoapi.com
 foldtest.136-110-92-140.sslip.io
 fopenai.com
 forceeasyai.com
@@ -10022,6 +10024,7 @@ tz.062778.xyz
 tztzt.com
 u.83.2ac1.hbktpd.cn
 u6.cadillac.ps
+u6ud2s.dnslog.cn
 u888-khuyenmai888k.com
 uclau.de
 ued.so
@@ -10480,6 +10483,7 @@ xavierhubs.com
 xavierxia.cloud
 xbbin.pro
 xbzz.cloud
+xcai.pro
 xcdmc.xyz
 xcodex.chuanyileo.space
 xcxdmkt.com
